@@ -87,7 +87,7 @@ export function newRun(seed: number, unlocks: UnlockId[] = []): RunState {
   recomputeIntegrity(s, true);
   s.rngState = rng.state;
   rollDay(s);
-  log(s, 'The old fire station is yours now. Scavenge by day, hold the walls by night.', 'info');
+  log(s, 'This old fire station is your safe zone now. Scavenge by day, hold the walls by night.', 'info');
   log(s, `Survive ${WIN_DAY} nights and the relief convoy will find you. Hordes hit every ${HORDE_EVERY}th night.`, 'info');
   return s;
 }
@@ -429,7 +429,7 @@ export function applyDefenseBattle(s: RunState, r: MissionReport): NightReport {
   for (const d of r.dead) {
     s.crew = s.crew.filter((c) => c.id !== d.id);
     s.stats.lost++;
-    lines.push(`${d.name} fell defending the station.`);
+    lines.push(`${d.name} fell defending the safe zone.`);
   }
   for (const o of r.survivors) {
     s.resources.ammo += o.ammoLeft;
@@ -442,11 +442,11 @@ export function applyDefenseBattle(s: RunState, r: MissionReport): NightReport {
     }
   }
   const dmg = r.coreDamage ?? 0;
-  if (dmg) { s.integrity -= dmg; lines.push(`The horde did ${dmg} damage to the base.`); }
+  if (dmg) { s.integrity -= dmg; lines.push(`The horde did ${dmg} damage to the safe zone.`); }
   const survived = r.survivors.length > 0;
   if (!survived) {
     s.integrity -= 25;
-    lines.push('With no one left standing, the horde ransacked the station.');
+    lines.push('With no one left standing, the horde ransacked the safe zone.');
   } else {
     lines.push(`The horde broke against the walls. Night ${s.day} survived.`);
     s.resources.scrap += 3;
@@ -463,7 +463,7 @@ export function finishNight(s: RunState, report: NightReport): NightReport {
     s.integrity = Math.max(0, s.integrity);
     s.phase = 'over';
     s.result = 'lost';
-    log(s, s.crew.length === 0 ? 'No one is left. The station goes dark.' : 'The walls are gone. The station has fallen.', 'bad');
+    log(s, s.crew.length === 0 ? 'No one is left. The safe zone goes dark.' : 'The walls are gone. The safe zone has fallen.', 'bad');
     return report;
   }
   if (s.day >= WIN_DAY) {

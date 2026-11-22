@@ -1,7 +1,7 @@
 # Station Nine
 
 A single-player, rogue-lite, turn-based zombie survival game that runs in the browser.
-Build up an old fire station, send your crew on tactical scavenging runs, and hold the walls at night.
+Build up a safe zone in an old fire station, send your crew on tactical scavenging runs, and hold the walls at night.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the design and tech plan.
 

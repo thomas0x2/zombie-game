@@ -97,7 +97,7 @@ export function mountBase(root: HTMLElement, s: RunState, hd: BaseHandlers): voi
     }
 
     // Base map and the selected building.
-    const mapHost = h('div', { class: 'base-map' });
+    const mapHost = h('div', {});
     mountBaseMap(mapHost, s, selectedId, (id: string) => { selectedId = id; render(); });
     const st = s.structures.find((x) => x.id === selectedId) ?? s.structures[0];
     const detail = h('div', { class: 'panel bld' }, ...structurePanel(st));
@@ -141,7 +141,7 @@ export function mountBase(root: HTMLElement, s: RunState, hd: BaseHandlers): voi
       h('div', { class: 'log' }, s.log.slice(0, 18).map((l) => h('div', { class: `log-${l.tone ?? 'info'}` }, h('span', { class: 'muted' }, `D${l.day} `), l.text))));
 
     root.append(top,
-      h('div', { class: 'base-top' }, mapHost, h('div', { class: 'col' }, detail, perimeter)),
+      h('div', { class: 'base-top' }, h('div', { class: 'base-map' }, h('h3', {}, 'Safe zone · click a building to manage it'), mapHost), h('div', { class: 'col' }, detail, perimeter)),
       h('div', { class: 'base-grid' },
         h('div', { class: 'col' }, h('div', { class: 'panel' }, h('h3', {}, `Crew (${s.crew.length}/${cap})`), crewList)),
         h('div', { class: 'col' }, h('div', { class: 'panel' }, h('h3', {}, 'Scavenging runs'), missions), night, traderBox),
@@ -155,7 +155,7 @@ export function mountBase(root: HTMLElement, s: RunState, hd: BaseHandlers): voi
       h('div', { class: 'row' }, h('h3', {}, st.name), h('span', { class: 'pill' }, `${sizeName} · up to level ${SIZE_CAP[st.size]}`)),
     ];
     if (st.fixed) {
-      out.push(h('p', { class: 'small' }, `The heart of the station: the stores, the kitchen and ${crewCap(0)} beds. If the dead reach the stores on a horde night, the base takes damage.`));
+      out.push(h('p', { class: 'small' }, `The heart of the safe zone: the stores, the kitchen and ${crewCap(0)} beds. If the dead reach the stores on a horde night, the safe zone takes damage.`));
       out.push(h('p', { class: 'small muted' }, 'Click another building on the map to repair, remodel or upgrade it.'));
       return out;
     }
@@ -172,7 +172,7 @@ export function mountBase(root: HTMLElement, s: RunState, hd: BaseHandlers): voi
       const up = upgradeCost(st);
       out.push(
         h('p', {}, h('b', {}, `${def.name} · level ${st.level}`)),
-        h('p', { class: 'small muted' }, `Whole station: ${def.describe(s.buildings[st.purpose])}`),
+        h('p', { class: 'small muted' }, `Whole safe zone: ${def.describe(s.buildings[st.purpose])}`),
         up
           ? h('button', { class: 'btn primary small', disabled: !canAfford(s, up), onclick: () => { upgradeStructure(s, st.id); render(); } }, `Upgrade to level ${st.level + 1} (${costText(up)})`)
           : h('span', { class: 'pill' }, 'As big as this building allows'),

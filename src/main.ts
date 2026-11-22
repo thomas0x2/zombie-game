@@ -62,7 +62,7 @@ function showTitle() {
   }));
   root.append(h('div', { class: 'title-screen' },
     h('h1', {}, 'STATION NINE'),
-    h('p', { class: 'tagline' }, 'Hold the old fire station. Scavenge the dead city. Make it to day ' + WIN_DAY + '.'),
+    h('p', { class: 'tagline' }, 'Hold your safe zone in an old fire station. Scavenge the dead city. Make it to day ' + WIN_DAY + '.'),
     h('div', { class: 'row center' },
       run ? h('button', { class: 'btn primary big', onclick: () => showBase() }, `Continue (day ${run.day})`) : null,
       h('button', { class: `btn big ${run ? '' : 'primary'}`, onclick: startRun }, run ? 'Abandon & start new run' : 'Start a run'),
@@ -72,8 +72,8 @@ function showTitle() {
     h('div', { class: 'panel small muted how' },
       h('h3', {}, 'How it works'),
       h('p', {}, 'Each day, send up to 4 survivors on a scavenging run. Turn-based, 2 actions each: move, shoot, swing, search, overwatch. Guns are loud and draw more dead. Only what you carry back to the green evac zone counts.'),
-      h('p', {}, 'Each night, the dead test your walls. Build up the station, keep everyone fed and patched up, and fight off a full horde every 5th night.'),
-      h('p', {}, 'When the station falls, you earn Hope to spend on head starts for the next run.'),
+      h('p', {}, 'Each night, the dead test your walls. Build up the safe zone, keep everyone fed and patched up, and fight off a full horde every 5th night.'),
+      h('p', {}, 'When the safe zone falls, you earn Hope to spend on head starts for the next run.'),
     ),
   ));
 }
@@ -116,7 +116,7 @@ function launchMission(s: RunState, site: MissionSite, ids: number[]) {
       const sum = b.summary();
       s.phase = 'base';
       const lines = applyMission(s, sum, site.name);
-      showReport(b.outcome === 'success' ? 'Back at the station' : 'A bad day', lines, showBase);
+      showReport(b.outcome === 'success' ? 'Back at the safe zone' : 'A bad day', lines, showBase);
     },
   });
 }
@@ -177,7 +177,7 @@ function showRunOver() {
   saveRun();
   clear(root);
   root.append(h('div', { class: 'overlay solid' }, h('div', { class: 'modal' },
-    h('h2', {}, won ? 'You made it' : 'The station has fallen'),
+    h('h2', {}, won ? 'You made it' : 'The safe zone has fallen'),
     h('p', {}, won ? `The convoy rolled in on day ${s.day}.` : `You held out until day ${s.day}.`),
     h('p', {}, `Zombies put down: ${s.stats.kills} · Survivors rescued: ${s.stats.rescued} · Crew lost: ${s.stats.lost} · Runs made: ${s.stats.missions}`),
     h('p', { class: 'good' }, `+${hope} hope`),

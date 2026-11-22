@@ -192,10 +192,10 @@ export function mountTactical(root: HTMLElement, battle: Battle, opts: TacticalO
     const overlay = h('div', { class: 'overlay' },
       h('div', { class: 'modal' },
         h('h2', {}, ok ? (battle.objective.type === 'survive' ? 'The line held' : 'Extraction complete') : 'Squad lost'),
-        h('p', {}, battle.objective.type === 'extract' ? `Recovered: ${loot}.` : `Base damage taken: ${s.coreDamage}.`),
+        h('p', {}, battle.objective.type === 'extract' ? `Recovered: ${loot}.` : `Safe zone damage taken: ${s.coreDamage}.`),
         s.dead.length ? h('p', { class: 'bad' }, `Lost: ${s.dead.map((d) => d.name).join(', ')}`) : null,
         s.survivors.some((x) => x.recruit) ? h('p', { class: 'good' }, `Rescued: ${s.survivors.filter((x) => x.recruit).map((x) => x.survivor.name).join(', ')}`) : null,
-        h('button', { class: 'btn primary', onclick: () => opts.onDone(battle) }, 'Return to base'),
+        h('button', { class: 'btn primary', onclick: () => opts.onDone(battle) }, 'Return to the safe zone'),
       ),
     );
     root.append(overlay);

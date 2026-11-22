@@ -1,7 +1,7 @@
 # Station Nine — design & tech plan
 
 Working title. Single-player, rogue-lite, turn-based top-down tactics in a zombie apocalypse.
-You hold an old fire station, send a crew out to scavenge by day, and defend the walls by night.
+You hold a safe zone in an old fire station, send a crew out to scavenge by day, and defend the walls by night.
 
 ## Pillars
 
@@ -11,7 +11,7 @@ You hold an old fire station, send a crew out to scavenge by day, and defend the
    the base decides whether you survive the night.
 3. **People matter.** Survivors have names, traits, levels and scars. Death is permanent.
    Finding new people is as important as finding food.
-4. **Runs end; you get better.** When the station falls you earn *Hope* that buys permanent
+4. **Runs end; you get better.** When the safe zone falls you earn *Hope* that buys permanent
    head starts for the next run.
 
 ## Core loop
@@ -27,7 +27,7 @@ You hold an old fire station, send a crew out to scavenge by day, and defend the
               └────────────── next day ◀───────────┘ garden & workshop output
 ```
 
-Win: survive 15 nights. Lose: integrity hits 0 or no crew left.
+Win: survive 15 nights. Lose: the safe zone's integrity hits 0 or no crew left.
 
 ## Systems in this first slice
 
@@ -36,11 +36,11 @@ Win: survive 15 nights. Lose: integrity hits 0 or no crew left.
 | Tactical missions | 26×18 procedural city block (buildings, road, wrecks, fences). 2 AP per survivor: move (1 or 2 AP), shoot (ends turn, loud), melee (quiet), overwatch, search, rescue, medic heal, evacuate. Line of sight, fog of war, low cover (−20 to hit), range penalties. |
 | Zombies | Shambler, Sprinter, Bloater. Dormant until they see you or hear noise. Noise and time on the map raise spawn pressure. |
 | Extraction | Loot goes into a limited pack. A fallen survivor drops their pack where they died. Rescued strangers join the crew only if they reach the evac zone. |
-| Base | A modeled fire-station compound: Station Hall (stores, fixed) plus six existing buildings (Hose Tower, Engine Garage, Dispatch Office, Chief's House, Tool Shed, Shipping Container). Some start ruined and must be cleared. Each can be remodeled as Bunkhouse, Garden, Workshop, Infirmary, Radio or Watchtower (allowed purposes depend on size) and upgraded up to its size (small 1, medium 2, large 3). Levels of the same purpose add up. Perimeter fence → walls, integrity + repairs. |
+| Safe zone | A modeled fire-station compound: Station Hall (stores, fixed) plus six existing buildings (Hose Tower, Engine Garage, Dispatch Office, Chief's House, Tool Shed, Shipping Container). Some start ruined and must be cleared. Each can be remodeled as Bunkhouse, Garden, Workshop, Infirmary, Radio or Watchtower (allowed purposes depend on size) and upgraded up to its size (small 1, medium 2, large 3). Levels of the same purpose add up. Perimeter fence → walls, integrity + repairs. |
 | Crew | Random names, 8 traits, XP & levels, injuries that take days to heal, tiredness after missions. |
 | Economy | Food, scrap, meds, ammo. Daily food upkeep. Ammo issued per mission, leftovers returned. |
 | Trade | A trader sometimes waits at the gate with three swaps (more often with a Radio). |
-| Night | Defense rating vs. growing attack strength; "heat" from noisy missions makes nights worse. Horde nights are an 8-turn tactical defense fought on the base's own map, with your buildings and furniture; walls level changes how many breaches there are. |
+| Night | Defense rating vs. growing attack strength; "heat" from noisy missions makes nights worse. Horde nights are an 8-turn tactical defense fought on the safe zone's own map, with your buildings and furniture; walls level changes how many breaches there are. |
 | Meta | Hope earned per run; six permanent unlocks. Saved in `localStorage`, along with the current run. |
 
 ## Tech

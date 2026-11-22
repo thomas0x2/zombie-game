@@ -15,10 +15,10 @@ export const TRAITS: Record<TraitId, { name: string; desc: string }> = {
   brawler: { name: 'Brawler', desc: '+2 melee damage' },
   scavenger: { name: 'Scavenger', desc: 'Carries 2 more loot' },
   quiet: { name: 'Quiet', desc: 'Gunshots make half the noise' },
-  medic: { name: 'Medic', desc: 'Can patch up an ally on missions; faster healing at base' },
+  medic: { name: 'Medic', desc: 'Can patch up an ally on missions; faster healing in the safe zone' },
   tough: { name: 'Tough', desc: '+3 max HP' },
   quick: { name: 'Quick', desc: '+2 mobility' },
-  leader: { name: 'Leader', desc: '+2 base defense when at home' },
+  leader: { name: 'Leader', desc: '+2 night defense while in the safe zone' },
 };
 
 const TRAIT_IDS = Object.keys(TRAITS) as TraitId[];
