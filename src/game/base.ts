@@ -2,9 +2,10 @@ import { Rng } from './rng';
 import { grantXp, isFit, makeSurvivor } from './crew';
 import type { UnlockId } from './meta';
 import type {
-  BuildingDef, BuildingId, LocationKind, Resources, ResourceKey, RunState, Survivor, TraderOffer,
+  BuildingDef, LocationKind, Resources, ResourceKey, RunState, Survivor, TraderOffer,
 } from './types';
 import { RESOURCE_KEYS } from './types';
+import { ALLOWED, SIZE_CAP, initialStructures, type Purpose, type Structure } from './layout';
 
 export const WIN_DAY = 15;
 export const HORDE_EVERY = 5;
@@ -17,29 +18,29 @@ export const BUILDINGS: BuildingDef[] = [
     describe: (l) => `+${l * 5} night defense, +${l * 10} max integrity. Fewer breaches during hordes.`,
   },
   {
-    id: 'tower', name: 'Watchtower', maxLevel: 2,
-    cost: (l) => ({ scrap: 5 + l * 5 }),
-    describe: (l) => `+${l * 3} night defense, +${l * 5} aim when defending. Warns of attack size.`,
+    id: 'tower', name: 'Watchtower', maxLevel: 1,
+    cost: () => ({ scrap: 8 }),
+    describe: (l) => `+${l * 4} night defense, +${l * 8} aim when defending. Warns of attack size.`,
   },
   {
-    id: 'garden', name: 'Rooftop Garden', maxLevel: 3,
+    id: 'garden', name: 'Garden', maxLevel: 6,
     cost: (l) => ({ scrap: 4 + l * 4, food: 2 }),
     describe: (l) => `Grows ${l * 2} food each day.`,
   },
   {
-    id: 'workshop', name: 'Workshop', maxLevel: 2,
+    id: 'workshop', name: 'Workshop', maxLevel: 3,
     cost: (l) => ({ scrap: 8 + l * 6 }),
     describe: (l) => `+${l} gun damage. Salvages ${l} scrap a day.`,
   },
   {
-    id: 'infirmary', name: 'Infirmary', maxLevel: 2,
+    id: 'infirmary', name: 'Infirmary', maxLevel: 3,
     cost: (l) => ({ scrap: 5 + l * 5, meds: 2 }),
     describe: (l) => `Injured heal ${l} extra day(s) per night. Restores ${l * 2} more HP.`,
   },
   {
-    id: 'bunks', name: 'Bunkhouse', maxLevel: 3,
+    id: 'bunks', name: 'Bunkhouse', maxLevel: 6,
     cost: (l) => ({ scrap: 4 + l * 4 }),
-    describe: (l) => `Room for ${crewCap(l)} survivors.`,
+    describe: (l) => `Beds for ${l * 2} more survivors.`,
   },
   {
     id: 'radio', name: 'Radio', maxLevel: 1,
@@ -69,6 +70,7 @@ export function newRun(seed: number, unlocks: UnlockId[] = []): RunState {
     seed, rngState: 0, day: 1, phase: 'base',
     resources: { food: 12, scrap: 10, meds: 3, ammo: 20 },
     buildings: { walls: 0, tower: 0, garden: 0, workshop: 0, infirmary: 0, bunks: 0, radio: 0 },
+    structures: initialStructures(),
     integrity: 30, maxIntegrity: 30,
     crew: [], nextId: 1, sites: [], missionDoneToday: false, trader: null, heat: 0, log: [],
     stats: { kills: 0, rescued: 0, lost: 0, missions: 0 },
@@ -78,8 +80,10 @@ export function newRun(seed: number, unlocks: UnlockId[] = []): RunState {
   if (unlocks.includes('stockpile')) { s.resources.food += 8; s.resources.ammo += 8; }
   if (unlocks.includes('medkits')) s.resources.meds += 4;
   if (unlocks.includes('palisade')) s.buildings.walls = 1;
-  if (unlocks.includes('gunsmith')) s.buildings.workshop = 1;
-  if (unlocks.includes('radio')) s.buildings.radio = 1;
+  const set = (id: string, p: Purpose) => { const st = s.structures.find((x) => x.id === id)!; st.purpose = p; st.level = 1; st.ruined = false; };
+  if (unlocks.includes('gunsmith')) set('garage', 'workshop');
+  if (unlocks.includes('radio')) set('shed', 'radio');
+  syncBuildings(s);
   recomputeIntegrity(s, true);
   s.rngState = rng.state;
   rollDay(s);
@@ -117,16 +121,88 @@ function gain(s: RunState, g: Partial<Resources>) {
   for (const k of RESOURCE_KEYS) s.resources[k] += g[k] ?? 0;
 }
 
-export function build(s: RunState, id: BuildingId): boolean {
-  const def = BUILDINGS.find((b) => b.id === id)!;
-  const lvl = s.buildings[id];
-  if (lvl >= def.maxLevel) return false;
-  const cost = def.cost(lvl);
+export const WALLS_MAX = 3;
+export function wallsCost(level: number): Partial<Resources> {
+  return { scrap: 6 + level * 6 };
+}
+
+export function upgradeWalls(s: RunState): boolean {
+  const lvl = s.buildings.walls;
+  if (lvl >= WALLS_MAX) return false;
+  const cost = wallsCost(lvl);
   if (!canAfford(s, cost)) return false;
   pay(s, cost);
-  s.buildings[id] = lvl + 1;
-  if (id === 'walls') recomputeIntegrity(s);
-  log(s, `Built ${def.name} level ${lvl + 1}.`, 'good');
+  s.buildings.walls = lvl + 1;
+  recomputeIntegrity(s);
+  log(s, `Reinforced the perimeter to level ${lvl + 1}.`, 'good');
+  return true;
+}
+
+export function purposeDef(p: Purpose): BuildingDef {
+  return BUILDINGS.find((b) => b.id === p)!;
+}
+
+/** Recompute effective purpose levels from the structures. */
+export function syncBuildings(s: RunState) {
+  for (const p of ['tower', 'garden', 'workshop', 'infirmary', 'bunks', 'radio'] as Purpose[]) {
+    const sum = s.structures.filter((st) => !st.ruined && st.purpose === p).reduce((a, st) => a + st.level, 0);
+    s.buildings[p] = Math.min(purposeDef(p).maxLevel, sum);
+  }
+}
+
+export function restoreCost(st: Structure): Partial<Resources> {
+  return { scrap: { small: 4, medium: 6, large: 9 }[st.size] };
+}
+
+export function restoreStructure(s: RunState, id: string): boolean {
+  const st = s.structures.find((x) => x.id === id);
+  if (!st || !st.ruined) return false;
+  const cost = restoreCost(st);
+  if (!canAfford(s, cost)) return false;
+  pay(s, cost);
+  st.ruined = false;
+  log(s, `Cleared the rubble and patched up the ${st.name}.`, 'good');
+  return true;
+}
+
+export function remodelCost(st: Structure, p: Purpose): Partial<Resources> {
+  const c = { ...purposeDef(p).cost(0) };
+  if (st.purpose) c.scrap = (c.scrap ?? 0) + 2; // tearing out the old fittings
+  return c;
+}
+
+export function canRemodel(st: Structure, p: Purpose): boolean {
+  return !st.fixed && !st.ruined && st.purpose !== p && ALLOWED[st.size].includes(p);
+}
+
+/** Turn a building over to a new purpose at level 1. */
+export function remodel(s: RunState, id: string, p: Purpose): boolean {
+  const st = s.structures.find((x) => x.id === id);
+  if (!st || !canRemodel(st, p)) return false;
+  const cost = remodelCost(st, p);
+  if (!canAfford(s, cost)) return false;
+  pay(s, cost);
+  st.purpose = p;
+  st.level = 1;
+  syncBuildings(s);
+  log(s, `The ${st.name} is now a ${purposeDef(p).name}.`, 'good');
+  return true;
+}
+
+export function upgradeCost(st: Structure): Partial<Resources> | null {
+  if (!st.purpose || st.ruined || st.level >= SIZE_CAP[st.size]) return null;
+  return purposeDef(st.purpose).cost(st.level);
+}
+
+export function upgradeStructure(s: RunState, id: string): boolean {
+  const st = s.structures.find((x) => x.id === id);
+  if (!st) return false;
+  const cost = upgradeCost(st);
+  if (!cost || !canAfford(s, cost)) return false;
+  pay(s, cost);
+  st.level++;
+  syncBuildings(s);
+  log(s, `Upgraded the ${st.name} (${purposeDef(st.purpose!).name}) to level ${st.level}.`, 'good');
   return true;
 }
 
@@ -262,7 +338,7 @@ export function isHordeNight(day: number): boolean {
 }
 
 export function defenseRating(s: RunState): number {
-  let d = s.buildings.walls * 5 + s.buildings.tower * 3;
+  let d = s.buildings.walls * 5 + s.buildings.tower * 4;
   for (const c of s.crew) {
     if (!isFit(c)) continue;
     let v = 4 + c.level;

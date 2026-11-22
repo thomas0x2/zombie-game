@@ -66,13 +66,17 @@ export interface LogEntry {
   tone?: 'good' | 'bad' | 'info';
 }
 
+import type { Structure } from './layout';
+
 export interface RunState {
   seed: number;
   rngState: number;
   day: number;
   phase: Phase;
   resources: Resources;
+  /** Effective levels per purpose, derived from structures (walls are the perimeter). */
   buildings: Record<BuildingId, number>;
+  structures: Structure[];
   /** Base integrity; 0 means the base falls. */
   integrity: number;
   maxIntegrity: number;

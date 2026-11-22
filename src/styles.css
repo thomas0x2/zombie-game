@@ -83,3 +83,10 @@ p { margin: 6px 0; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .help { margin: 6px 0; }
 @media (max-width: 1100px) { .tac-wrap { flex-direction: column; } .tac-side { width: 100%; flex: none; max-height: none; } }
+.base-top { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; padding: 12px 16px 0; align-items: start; }
+@media (max-width: 1000px) { .base-top { grid-template-columns: 1fr; } }
+.base-map { min-width: 0; }
+.base-canvas { cursor: default; width: 100%; }
+.bld h3 { margin: 0; }
+.remodel { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.remodel .btn { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }

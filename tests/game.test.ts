@@ -3,7 +3,7 @@ import { Grid, key } from '../src/tactical/grid';
 import { Battle } from '../src/tactical/battle';
 import { generateDefenseMap, generateScavengeMap } from '../src/tactical/mapgen';
 import {
-  applyDefenseBattle, applyMission, build, finishNight, issueAmmo, newRun, resolveNightAuto, isHordeNight, availableForMission,
+  applyDefenseBattle, applyMission, upgradeWalls, remodel, restoreStructure, upgradeStructure, finishNight, issueAmmo, newRun, resolveNightAuto, isHordeNight, availableForMission,
 } from '../src/game/base';
 import { makeSurvivor } from '../src/game/crew';
 import { Rng } from '../src/game/rng';
@@ -172,12 +172,36 @@ describe('run loop', () => {
     expect(s.maxIntegrity).toBe(40);
   });
 
-  it('building costs resources', () => {
+  it('walls cost scrap', () => {
     const s = newRun(7);
     const scrap = s.resources.scrap;
-    expect(build(s, 'walls')).toBe(true);
+    expect(upgradeWalls(s)).toBe(true);
     expect(s.resources.scrap).toBe(scrap - 6);
     expect(s.buildings.walls).toBe(1);
+  });
+
+  it('buildings can be repaired, remodeled and upgraded within their size', () => {
+    const s = newRun(8);
+    s.resources = { food: 50, scrap: 100, meds: 20, ammo: 20 };
+    // Ruined buildings must be cleared first.
+    expect(remodel(s, 'office', 'garden')).toBe(false);
+    expect(restoreStructure(s, 'office')).toBe(true);
+    expect(remodel(s, 'office', 'garden')).toBe(true);
+    expect(s.buildings.garden).toBe(1);
+    expect(upgradeStructure(s, 'office')).toBe(true);
+    expect(upgradeStructure(s, 'office')).toBe(false); // medium caps at 2
+    expect(s.buildings.garden).toBe(2);
+    // Purposes add up across buildings.
+    expect(remodel(s, 'garage', 'garden')).toBe(true);
+    expect(s.buildings.garden).toBe(3);
+    // Remodeling resets the level and moves the effect.
+    expect(remodel(s, 'office', 'bunks')).toBe(true);
+    expect(s.buildings.garden).toBe(1);
+    expect(s.buildings.bunks).toBe(1);
+    // Size rules: a watchtower only fits a small building; the hall can't be remodeled.
+    expect(remodel(s, 'garage', 'tower')).toBe(false);
+    expect(remodel(s, 'tower', 'tower')).toBe(true);
+    expect(remodel(s, 'hall', 'garden')).toBe(false);
   });
 
   it('simulates whole runs without breaking', () => {
@@ -186,7 +210,7 @@ describe('run loop', () => {
       let guard = 0;
       while (s.phase !== 'over' && guard++ < 40) {
         // Spend scrap on walls/garden, go on a mission, end the day.
-        build(s, 'walls') || build(s, 'garden') || build(s, 'tower');
+        upgradeWalls(s) || remodel(s, 'garage', 'garden') || remodel(s, 'tower', 'tower') || upgradeStructure(s, 'garage');
         const squad = availableForMission(s).slice(0, 3);
         if (squad.length) {
           const ammo = issueAmmo(s, squad.length);
@@ -198,7 +222,7 @@ describe('run loop', () => {
           const def = s.crew.filter(isFit);
           if (def.length) {
             const ammo = issueAmmo(s, def.length, 8);
-            const b = new Battle(generateDefenseMap(s.seed + s.day, s.day, s.buildings.walls), def.map((survivor) => ({ survivor, ammo })));
+            const b = new Battle(generateDefenseMap(s.seed + s.day, s.day, s.buildings.walls, s.structures), def.map((survivor) => ({ survivor, ammo })));
             autoplay(b, 12);
             finishNight(s, applyDefenseBattle(s, b.summary()));
             continue;

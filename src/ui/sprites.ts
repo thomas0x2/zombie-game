@@ -3,7 +3,6 @@
  * textured ground and simple round-headed characters. All original, drawn with Canvas 2D.
  */
 import type { Grid, Pt, Tile } from '../tactical/grid';
-import { isSolid } from '../tactical/grid';
 import type { ResourceKey } from '../game/types';
 
 export const TS = 40;
@@ -188,7 +187,7 @@ export function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: 
 }
 
 /** Renders the static ground layer once. */
-export function renderTerrain(g: Grid, evac: Pt[], core: Pt[]): HTMLCanvasElement {
+export function renderTerrain(g: Grid, evac: Pt[], core: Pt[], decor?: (c: CanvasRenderingContext2D) => void): HTMLCanvasElement {
   const cv = document.createElement('canvas');
   cv.width = g.w * TS;
   cv.height = g.h * TS;
@@ -228,6 +227,7 @@ export function renderTerrain(g: Grid, evac: Pt[], core: Pt[]): HTMLCanvasElemen
       drawCar(c, x, y, wide);
     }
   }
+  decor?.(c);
   // Evac zone: painted landing marks.
   if (evac.length) {
     for (const p of evac) {
@@ -394,13 +394,13 @@ export function drawHpBar(c: CanvasRenderingContext2D, cx: number, top: number, 
 }
 
 /** Corner brackets around a selected thing. */
-export function drawBrackets(c: CanvasRenderingContext2D, x: number, y: number, size: number, color = '#f2efe6') {
+export function drawBrackets(c: CanvasRenderingContext2D, x: number, y: number, size: number, color = '#f2efe6', height = size) {
   const l = 7;
   c.strokeStyle = color;
   c.lineWidth = 2;
   c.beginPath();
   for (const [sx, sy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
-    const px = x + sx * size, py = y + sy * size;
+    const px = x + sx * size, py = y + sy * height;
     const dx = sx ? -l : l, dy = sy ? -l : l;
     c.moveTo(px + dx, py); c.lineTo(px, py); c.lineTo(px, py + dy);
   }
@@ -439,6 +439,140 @@ export function drawLoot(c: CanvasRenderingContext2D, x: number, y: number, kind
   }
 }
 
-export function solidAt(g: Grid, x: number, y: number) {
-  return isSolid(g.get(x, y));
+// ---------------------------------------------------------------- base furniture
+
+type Room = { x: number; y: number; w: number; h: number; purpose: string | null; level: number; ruined: boolean; fixed?: boolean; id: string };
+
+function bed(c: CanvasRenderingContext2D, px: number, py: number, blanket: string, medical = false) {
+  c.fillStyle = 'rgba(0,0,0,0.25)'; c.fillRect(px + 9, py + 5, 26, 33);
+  c.fillStyle = OUTLINE; roundRect(c, px + 6, py + 2, 28, 35, 3); c.fill();
+  c.fillStyle = medical ? '#e8e6e0' : '#8b6a47'; roundRect(c, px + 7.5, py + 3.5, 25, 32, 2); c.fill();
+  c.fillStyle = '#efe9dc'; roundRect(c, px + 10, py + 5, 20, 7, 2); c.fill();
+  c.fillStyle = blanket; c.fillRect(px + 9, py + 14, 22, 20);
+  c.fillStyle = shade(blanket, 0.08); c.fillRect(px + 9, py + 14, 22, 3);
+  if (medical) { c.fillStyle = '#c0392b'; c.fillRect(px + 18, py + 19, 4, 11); c.fillRect(px + 14.5, py + 22.5, 11, 4); }
+}
+
+function plantRow(c: CanvasRenderingContext2D, px: number, py: number, grown: number, seed: number) {
+  c.fillStyle = '#5a3f28'; c.fillRect(px + 2, py + 2, TS - 4, TS - 4);
+  c.fillStyle = '#4a321f';
+  for (let i = 0; i < 3; i++) c.fillRect(px + 4, py + 8 + i * 11, TS - 8, 3);
+  for (let i = 0; i < 6; i++) {
+    const cx = px + 9 + (i % 3) * 11, cy = py + 10 + Math.floor(i / 3) * 16;
+    const r = 3 + grown * 1.6 + hash(seed, i, 5) * 1.5;
+    c.fillStyle = OUTLINE; c.beginPath(); c.arc(cx, cy, r + 1.2, 0, Math.PI * 2); c.fill();
+    c.fillStyle = hash(seed, i, 6) < 0.5 ? '#6f9a3e' : '#7fae45'; c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.fill();
+    if (grown >= 2 && hash(seed, i, 7) < 0.4) { c.fillStyle = '#d8743a'; c.beginPath(); c.arc(cx + 1, cy + 1, 1.8, 0, Math.PI * 2); c.fill(); }
+  }
+}
+
+function bench(c: CanvasRenderingContext2D, px: number, py: number, wide: number) {
+  const w = TS * wide - 8;
+  c.fillStyle = 'rgba(0,0,0,0.25)'; c.fillRect(px + 7, py + 9, w, 24);
+  c.fillStyle = OUTLINE; c.fillRect(px + 3, py + 5, w + 2, 26);
+  c.fillStyle = '#7b5a36'; c.fillRect(px + 4.5, py + 6.5, w - 1, 23);
+  c.fillStyle = '#9aa1a6'; c.fillRect(px + 10, py + 12, 12, 4); c.fillRect(px + 26, py + 18, 4, 9);
+  c.fillStyle = '#b5453a'; c.fillRect(px + w - 14, py + 11, 8, 10);
+  c.fillStyle = '#d9b44a'; c.fillRect(px + 12, py + 21, 8, 3);
+}
+
+function radioConsole(c: CanvasRenderingContext2D, px: number, py: number) {
+  c.fillStyle = OUTLINE; c.fillRect(px + 4, py + 6, 32, 22);
+  c.fillStyle = '#4b4f4a'; c.fillRect(px + 5.5, py + 7.5, 29, 19);
+  c.fillStyle = '#2a2d2a'; c.fillRect(px + 8, py + 10, 14, 9);
+  c.fillStyle = '#7bd96b'; c.fillRect(px + 10, py + 13, 10, 2);
+  for (let i = 0; i < 3; i++) { c.fillStyle = ['#e0533a', '#f5b041', '#7bd96b'][i]; c.beginPath(); c.arc(px + 26 + (i % 2) * 4, py + 11 + i * 4, 1.6, 0, Math.PI * 2); c.fill(); }
+  c.strokeStyle = OUTLINE; c.lineWidth = 2; c.beginPath(); c.moveTo(px + 30, py + 6); c.lineTo(px + 34, py - 10); c.stroke();
+  c.fillStyle = '#c0392b'; c.beginPath(); c.arc(px + 34, py - 10, 2.5, 0, Math.PI * 2); c.fill();
+}
+
+function rubble(c: CanvasRenderingContext2D, px: number, py: number, seed: number) {
+  for (let i = 0; i < 7; i++) {
+    const rx = px + 4 + hash(seed, i, 1) * (TS - 10), ry = py + 4 + hash(seed, i, 2) * (TS - 10);
+    const r = 2 + hash(seed, i, 3) * 5;
+    c.fillStyle = OUTLINE; c.beginPath(); c.arc(rx, ry, r + 1, 0, Math.PI * 2); c.fill();
+    c.fillStyle = i % 2 ? '#8d8478' : '#6f675d'; c.beginPath(); c.arc(rx, ry, r, 0, Math.PI * 2); c.fill();
+  }
+  c.strokeStyle = '#5f4630'; c.lineWidth = 3;
+  c.beginPath(); c.moveTo(px + 6, py + TS - 8); c.lineTo(px + TS - 6, py + 10); c.stroke();
+}
+
+function lookout(c: CanvasRenderingContext2D, px: number, py: number) {
+  c.fillStyle = OUTLINE; c.fillRect(px + 3, py + 3, TS - 6, TS - 6);
+  c.fillStyle = '#8b6a3e'; c.fillRect(px + 5, py + 5, TS - 10, TS - 10);
+  c.strokeStyle = '#5f4630'; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(px + 5, py + 5); c.lineTo(px + TS - 5, py + TS - 5); c.moveTo(px + TS - 5, py + 5); c.lineTo(px + 5, py + TS - 5); c.stroke();
+  // Ladder.
+  c.strokeStyle = '#c9a66b'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(px + 15, py + TS - 4); c.lineTo(px + 15, py + 22); c.moveTo(px + 25, py + TS - 4); c.lineTo(px + 25, py + 22);
+  for (let i = 0; i < 3; i++) { c.moveTo(px + 15, py + 26 + i * 4); c.lineTo(px + 25, py + 26 + i * 4); }
+  c.stroke();
+}
+
+function lockers(c: CanvasRenderingContext2D, px: number, py: number) {
+  for (let i = 0; i < 3; i++) {
+    c.fillStyle = OUTLINE; c.fillRect(px + 2 + i * 12, py + 4, 12, 18);
+    c.fillStyle = '#7a3b33'; c.fillRect(px + 3 + i * 12, py + 5, 10, 16);
+    c.fillStyle = '#c9b48a'; c.fillRect(px + 10 + i * 12, py + 12, 1.5, 3);
+  }
+}
+
+/** Furniture and dressing for each building, by purpose. */
+export function drawRooms(c: CanvasRenderingContext2D, rooms: Room[]) {
+  const blankets = ['#4f6d7a', '#8b3f3a', '#5e6b45', '#7b6a8c', '#9a7b4f'];
+  for (const r of rooms) {
+    const tiles: Pt[] = [];
+    for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) tiles.push({ x, y });
+    const seed = r.x * 31 + r.y;
+    if (r.ruined) {
+      tiles.forEach((p, i) => { if (hash(p.x, p.y, 3) < 0.55 || i === 0) rubble(c, p.x * TS, p.y * TS, seed + i); });
+      continue;
+    }
+    if (r.fixed) {
+      lockers(c, (r.x + 1) * TS, (r.y + 1) * TS);
+      bench(c, (r.x + r.w - 4) * TS, (r.y + r.h - 2) * TS, 2);
+      bed(c, (r.x + 1) * TS, (r.y + r.h - 2) * TS, blankets[0]);
+      bed(c, (r.x + 2) * TS, (r.y + r.h - 2) * TS, blankets[1]);
+      continue;
+    }
+    switch (r.purpose) {
+      case 'bunks': {
+        const n = Math.min(tiles.length, r.level * 2);
+        tiles.filter((p) => p.y === r.y + 1 || p.y === r.y + r.h - 2).slice(0, n).forEach((p, i) => bed(c, p.x * TS, p.y * TS, blankets[i % blankets.length]));
+        break;
+      }
+      case 'garden': {
+        const n = Math.min(tiles.length, 2 + r.level * 3);
+        tiles.slice(0, n).forEach((p, i) => plantRow(c, p.x * TS, p.y * TS, r.level, seed + i));
+        break;
+      }
+      case 'workshop': {
+        const row = tiles.filter((p) => p.y === r.y + 1);
+        if (row.length) bench(c, row[0].x * TS, row[0].y * TS, Math.min(2, row.length));
+        if (r.level >= 2 && row.length >= 4) bench(c, row[2].x * TS, row[2].y * TS, 2);
+        if (r.level >= 3) { const p = tiles[tiles.length - 1]; drawLoot(c, p.x, p.y, 'scrap'); }
+        break;
+      }
+      case 'infirmary': {
+        const n = Math.min(tiles.length, r.level + 1);
+        tiles.filter((p) => p.y === r.y + 1).concat(tiles.filter((p) => p.y !== r.y + 1)).slice(0, n).forEach((p) => bed(c, p.x * TS, p.y * TS, '#cfd8dc', true));
+        break;
+      }
+      case 'radio': {
+        const p = tiles[0];
+        if (p) radioConsole(c, p.x * TS, p.y * TS);
+        break;
+      }
+      case 'tower': {
+        tiles.forEach((p) => lookout(c, p.x * TS, p.y * TS));
+        break;
+      }
+      default: {
+        // Empty: dust and a few leftover boxes.
+        tiles.forEach((p) => {
+          if (hash(p.x, p.y, 9) < 0.25) { c.fillStyle = 'rgba(40,30,20,0.25)'; c.beginPath(); c.ellipse(p.x * TS + 20, p.y * TS + 20, 12, 8, 0, 0, Math.PI * 2); c.fill(); }
+        });
+      }
+    }
+  }
 }

@@ -10,6 +10,7 @@ import { Battle } from './tactical/battle';
 import { generateDefenseMap, generateScavengeMap } from './tactical/mapgen';
 import { mountBase } from './ui/baseView';
 import { mountTactical } from './ui/tacticalView';
+import { drawRooms } from './ui/sprites';
 import { h, clear } from './ui/dom';
 
 const RUN_KEY = 'station-nine-run-v1';
@@ -23,7 +24,7 @@ function loadRun(): RunState | null {
     const raw = localStorage.getItem(RUN_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw) as RunState;
-    if (s.phase === 'over') return null;
+    if (s.phase === 'over' || !Array.isArray(s.structures)) return null; // finished, or a save from before the base map
     if (s.phase === 'mission' || s.phase === 'defense') {
       // Reloaded mid-battle: the squad limps home with nothing.
       s.phase = 'base';
@@ -125,14 +126,15 @@ function startNight(s: RunState) {
     const defenders = s.crew.filter(isFit).slice(0, 6);
     if (defenders.length) {
       const ammo = issueAmmo(s, defenders.length, 8);
-      const cfg = generateDefenseMap(s.seed + s.day * 31, s.day, s.buildings.walls);
+      const cfg = generateDefenseMap(s.seed + s.day * 31, s.day, s.buildings.walls, s.structures);
       cfg.dmgBonus = s.buildings.workshop;
-      cfg.aimBonus = s.buildings.tower * 5;
+      cfg.aimBonus = s.buildings.tower * 8;
       const battle = new Battle(cfg, defenders.map((survivor) => ({ survivor, ammo })));
       s.phase = 'defense';
       saveRun();
       disposeTactical = mountTactical(root, battle, {
         title: `Horde night ${s.day}`,
+        decor: (c) => drawRooms(c, s.structures),
         onDone: (b) => {
           const rep = applyDefenseBattle(s, b.summary());
           endNight(s, rep);

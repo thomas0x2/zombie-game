@@ -1,7 +1,10 @@
 import {
-  BUILDINGS, REPAIR_AMOUNT, REPAIR_COST, WIN_DAY, AMMO_PER_MEMBER, attackEstimate, availableForMission, build, canAfford,
-  crewCap, defenseRating, isHordeNight, repair, trade, treat,
+  REPAIR_AMOUNT, REPAIR_COST, WIN_DAY, AMMO_PER_MEMBER, WALLS_MAX, attackEstimate, availableForMission, canAfford,
+  canRemodel, crewCap, defenseRating, isHordeNight, purposeDef, remodel, remodelCost, repair, restoreCost, restoreStructure,
+  trade, treat, upgradeCost, upgradeStructure, upgradeWalls, wallsCost,
 } from '../game/base';
+import { ALLOWED, SIZE_CAP, type Purpose, type Structure } from '../game/layout';
+import { mountBaseMap } from './baseMap';
 import { TRAITS, XP_PER_LEVEL, isFit } from '../game/crew';
 import { RESOURCE_KEYS, RESOURCE_LABEL, type MissionSite, type Resources, type RunState } from '../game/types';
 import { h, clear } from './dom';
@@ -21,6 +24,7 @@ export function costText(c: Partial<Resources>): string {
 
 export function mountBase(root: HTMLElement, s: RunState, hd: BaseHandlers): void {
   let chosenSite: number | null = null;
+  let selectedId = 'hall';
   const squad = new Set<number>();
 
   function render() {
@@ -92,24 +96,26 @@ export function mountBase(root: HTMLElement, s: RunState, hd: BaseHandlers): voi
       }
     }
 
-    // Buildings
-    const blds = h('div', { class: 'list' });
-    for (const b of BUILDINGS) {
-      const lvl = s.buildings[b.id];
-      const maxed = lvl >= b.maxLevel;
-      const cost = maxed ? {} : b.cost(lvl);
-      blds.append(h('div', { class: 'card' },
-        h('div', { class: 'row' }, h('b', {}, b.name), h('span', { class: 'pill' }, `${lvl}/${b.maxLevel}`)),
-        h('div', { class: 'small muted' }, lvl ? b.describe(lvl) : `Not built. Next: ${b.describe(1)}`),
-        maxed ? null : h('button', { class: 'btn small', disabled: !canAfford(s, cost), onclick: () => { build(s, b.id); render(); } },
-          `${lvl ? 'Upgrade' : 'Build'} (${costText(cost)})`),
-      ));
-    }
-    blds.append(h('div', { class: 'card' },
-      h('div', { class: 'row' }, h('b', {}, 'Repairs')),
-      h('div', { class: 'small muted' }, `Patch the walls: +${REPAIR_AMOUNT} integrity.`),
-      h('button', { class: 'btn small', disabled: s.integrity >= s.maxIntegrity || s.resources.scrap < REPAIR_COST, onclick: () => { repair(s); render(); } }, `Repair (${REPAIR_COST} scrap)`),
-    ));
+    // Base map and the selected building.
+    const mapHost = h('div', { class: 'base-map' });
+    mountBaseMap(mapHost, s, selectedId, (id: string) => { selectedId = id; render(); });
+    const st = s.structures.find((x) => x.id === selectedId) ?? s.structures[0];
+    const detail = h('div', { class: 'panel bld' }, ...structurePanel(st));
+
+    const perimeter = h('div', { class: 'panel' },
+      h('h3', {}, 'Perimeter'),
+      h('div', { class: 'small muted' }, s.buildings.walls === 0
+        ? 'A sagging chain-link fence with four wide gaps.'
+        : `Level ${s.buildings.walls} walls: +${s.buildings.walls * 5} night defense, ${s.buildings.walls >= 2 ? 'two' : 'three'} narrow gates.`),
+      h('div', { class: 'row' },
+        s.buildings.walls < WALLS_MAX
+          ? h('button', { class: 'btn small', disabled: !canAfford(s, wallsCost(s.buildings.walls)), onclick: () => { upgradeWalls(s); render(); } },
+            `${s.buildings.walls ? 'Reinforce' : 'Build walls'} (${costText(wallsCost(s.buildings.walls))})`)
+          : h('span', { class: 'pill good' }, 'Fully fortified'),
+        h('button', { class: 'btn small', disabled: s.integrity >= s.maxIntegrity || s.resources.scrap < REPAIR_COST, onclick: () => { repair(s); render(); } },
+          `Patch walls +${REPAIR_AMOUNT} (${REPAIR_COST} scrap)`),
+      ),
+    );
 
     // Trader
     const traderBox = s.trader ? h('div', { class: 'panel' },
@@ -134,11 +140,58 @@ export function mountBase(root: HTMLElement, s: RunState, hd: BaseHandlers): voi
     const logBox = h('div', { class: 'panel' }, h('h3', {}, 'Journal'),
       h('div', { class: 'log' }, s.log.slice(0, 18).map((l) => h('div', { class: `log-${l.tone ?? 'info'}` }, h('span', { class: 'muted' }, `D${l.day} `), l.text))));
 
-    root.append(top, h('div', { class: 'base-grid' },
-      h('div', { class: 'col' }, h('div', { class: 'panel' }, h('h3', {}, `Crew (${s.crew.length}/${cap})`), crewList)),
-      h('div', { class: 'col' }, h('div', { class: 'panel' }, h('h3', {}, 'Scavenging runs'), missions), night, traderBox),
-      h('div', { class: 'col' }, h('div', { class: 'panel' }, h('h3', {}, 'Station'), blds), logBox),
-    ));
+    root.append(top,
+      h('div', { class: 'base-top' }, mapHost, h('div', { class: 'col' }, detail, perimeter)),
+      h('div', { class: 'base-grid' },
+        h('div', { class: 'col' }, h('div', { class: 'panel' }, h('h3', {}, `Crew (${s.crew.length}/${cap})`), crewList)),
+        h('div', { class: 'col' }, h('div', { class: 'panel' }, h('h3', {}, 'Scavenging runs'), missions), night, traderBox),
+        h('div', { class: 'col' }, logBox),
+      ));
+  }
+
+  function structurePanel(st: Structure): (Node | null)[] {
+    const sizeName = { small: 'Small', medium: 'Medium', large: 'Large' }[st.size];
+    const out: (Node | null)[] = [
+      h('div', { class: 'row' }, h('h3', {}, st.name), h('span', { class: 'pill' }, `${sizeName} · up to level ${SIZE_CAP[st.size]}`)),
+    ];
+    if (st.fixed) {
+      out.push(h('p', { class: 'small' }, `The heart of the station: the stores, the kitchen and ${crewCap(0)} beds. If the dead reach the stores on a horde night, the base takes damage.`));
+      out.push(h('p', { class: 'small muted' }, 'Click another building on the map to repair, remodel or upgrade it.'));
+      return out;
+    }
+    if (st.ruined) {
+      const cost = restoreCost(st);
+      out.push(
+        h('p', { class: 'small' }, 'Caved-in roof, rubble everywhere. It needs clearing before it can be used.'),
+        h('button', { class: 'btn primary small', disabled: !canAfford(s, cost), onclick: () => { restoreStructure(s, st.id); render(); } }, `Clear & repair (${costText(cost)})`),
+      );
+      return out;
+    }
+    if (st.purpose) {
+      const def = purposeDef(st.purpose);
+      const up = upgradeCost(st);
+      out.push(
+        h('p', {}, h('b', {}, `${def.name} · level ${st.level}`)),
+        h('p', { class: 'small muted' }, `Whole station: ${def.describe(s.buildings[st.purpose])}`),
+        up
+          ? h('button', { class: 'btn primary small', disabled: !canAfford(s, up), onclick: () => { upgradeStructure(s, st.id); render(); } }, `Upgrade to level ${st.level + 1} (${costText(up)})`)
+          : h('span', { class: 'pill' }, 'As big as this building allows'),
+      );
+    } else {
+      out.push(h('p', { class: 'small' }, 'Empty and usable. Pick what to turn it into.'));
+    }
+    const options = ALLOWED[st.size].filter((p) => p !== st.purpose);
+    out.push(h('div', { class: 'small muted' }, st.purpose ? 'Remodel as (resets to level 1):' : 'Remodel as:'));
+    out.push(h('div', { class: 'remodel' }, options.map((p: Purpose) => {
+      const def = purposeDef(p);
+      const cost = remodelCost(st, p);
+      return h('button', {
+        class: 'btn small', title: def.describe(1),
+        disabled: !canRemodel(st, p) || !canAfford(s, cost),
+        onclick: () => { remodel(s, st.id, p); render(); },
+      }, h('b', {}, def.name), h('span', { class: 'muted' }, ` ${costText(cost)}`));
+    })));
+    return out;
   }
   render();
 }

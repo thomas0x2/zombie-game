@@ -1,6 +1,7 @@
 import { Rng } from '../game/rng';
 import { makeSurvivor } from '../game/crew';
 import type { MissionSite, Resources, ResourceKey } from '../game/types';
+import { buildBaseGrid, coreTiles, initialStructures, interior, type Structure } from '../game/layout';
 import { RESOURCE_KEYS } from '../game/types';
 import type { BattleConfig, LootCache, ZombieKind } from './battle';
 import { Grid, isSolid, key, type Pt } from './grid';
@@ -177,61 +178,29 @@ function tryScavenge(site: MissionSite, day: number, seed: number): BattleConfig
   return { grid, evac, deploy, spawns, loot, strangers, zombies, objective: { type: 'extract' }, danger, seed };
 }
 
-/** Night-horde defense of the home base. */
-export function generateDefenseMap(seed: number, day: number, wallsLevel: number): BattleConfig {
+/** Night-horde defense of the home base, fought on the base's own layout. */
+export function generateDefenseMap(seed: number, day: number, wallsLevel: number, structures: Structure[] = initialStructures()): BattleConfig {
   const rng = new Rng(seed);
-  const grid = new Grid(MAP_W, MAP_H, 'grass');
-  const cx0 = 7, cy0 = 4, cw = 12, ch = 10;
-  for (let y = cy0; y < cy0 + ch; y++) {
-    for (let x = cx0; x < cx0 + cw; x++) {
-      const edge = x === cx0 || y === cy0 || x === cx0 + cw - 1 || y === cy0 + ch - 1;
-      grid.set(x, y, edge ? (wallsLevel >= 1 ? 'wall' : 'fence') : 'floor');
-    }
-  }
-  // Gates: better walls mean fewer, narrower breaches.
-  const gates = wallsLevel >= 2 ? 2 : wallsLevel === 1 ? 3 : 4;
-  const width = wallsLevel === 0 ? 2 : 1;
-  const sides: Pt[][] = [
-    [{ x: cx0 + 5, y: cy0 }, { x: cx0 + 6, y: cy0 }],
-    [{ x: cx0 + 5, y: cy0 + ch - 1 }, { x: cx0 + 6, y: cy0 + ch - 1 }],
-    [{ x: cx0, y: cy0 + 4 }, { x: cx0, y: cy0 + 5 }],
-    [{ x: cx0 + cw - 1, y: cy0 + 4 }, { x: cx0 + cw - 1, y: cy0 + 5 }],
-  ];
-  rng.shuffle(sides);
-  for (let i = 0; i < gates; i++) for (let j = 0; j < width; j++) grid.set(sides[i][j].x, sides[i][j].y, 'floor');
+  const grid = buildBaseGrid(structures, wallsLevel);
+  const core = coreTiles();
+  const hall = structures.find((st) => st.id === 'hall')!;
+  const deploy = interior(hall).filter((p) => !core.some((c) => c.x === p.x && c.y === p.y));
+  rng.shuffle(deploy);
 
-  // Barricades inside for cover.
-  for (const p of [{ x: cx0 + 3, y: cy0 + 3 }, { x: cx0 + 8, y: cy0 + 6 }, { x: cx0 + 3, y: cy0 + 6 }, { x: cx0 + 8, y: cy0 + 3 }]) {
-    grid.set(p.x, p.y, 'crate');
-  }
-  // Debris outside.
-  for (let i = 0; i < 8; i++) {
-    const x = rng.int(1, MAP_W - 2), y = rng.int(1, MAP_H - 2);
-    const inside = x >= cx0 - 1 && x <= cx0 + cw && y >= cy0 - 1 && y <= cy0 + ch;
-    if (!inside) grid.set(x, y, rng.chance(0.5) ? 'car' : 'fence');
-  }
-
-  const core: Pt[] = [];
-  for (let y = cy0 + 4; y <= cy0 + 5; y++) for (let x = cx0 + 5; x <= cx0 + 6; x++) core.push({ x, y });
-  const deploy: Pt[] = [
-    { x: cx0 + 4, y: cy0 + 4 }, { x: cx0 + 7, y: cy0 + 5 }, { x: cx0 + 4, y: cy0 + 5 }, { x: cx0 + 7, y: cy0 + 4 },
-    { x: cx0 + 5, y: cy0 + 3 }, { x: cx0 + 6, y: cy0 + 6 },
-  ];
   const spawns: Pt[] = [];
   for (let x = 0; x < MAP_W; x++) { spawns.push({ x, y: 0 }, { x, y: MAP_H - 1 }); }
   for (let y = 1; y < MAP_H - 1; y++) { spawns.push({ x: 0, y }, { x: MAP_W - 1, y }); }
+  const open = spawns.filter((p) => !isSolid(grid.get(p.x, p.y)));
 
   const zombies: BattleConfig['zombies'] = [];
   const n = 5 + day;
   const danger = Math.min(5, 1 + Math.floor(day / 4));
-  rng.shuffle(spawns);
-  for (let i = 0; i < n; i++) {
-    const p = spawns[i];
-    if (isSolid(grid.get(p.x, p.y))) continue;
-    zombies.push({ kind: pickKind(rng, danger), x: p.x, y: p.y });
+  rng.shuffle(open);
+  for (let i = 0; i < Math.min(n, open.length); i++) {
+    zombies.push({ kind: pickKind(rng, danger), x: open[i].x, y: open[i].y });
   }
   return {
-    grid, evac: [], deploy, spawns: spawns.filter((p) => !isSolid(grid.get(p.x, p.y))), loot: [], strangers: [],
+    grid, evac: [], deploy, spawns: open, loot: [], strangers: [],
     zombies, objective: { type: 'survive', turns: 8 }, danger, seed, core,
   };
 }

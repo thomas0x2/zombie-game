@@ -24,6 +24,8 @@ interface Fx { kind: 'line' | 'text'; from?: Pt; to: Pt; text?: string; color: s
 
 export interface TacticalOptions {
   title: string;
+  /** Extra ground dressing (e.g. the base's furniture on horde nights). */
+  decor?: (c: CanvasRenderingContext2D) => void;
   onDone: (b: Battle) => void;
 }
 
@@ -44,6 +46,10 @@ export function mountTactical(root: HTMLElement, battle: Battle, opts: TacticalO
   let disposed = false;
   let eventIdx = 0;
   const seen = new Set<number>();
+  // Your own base is already mapped out; only the dead are hidden by line of sight.
+  if (battle.objective.type === 'survive') {
+    for (let y = 0; y < battle.grid.h; y++) for (let x = 0; x < battle.grid.w; x++) seen.add(key(x, y));
+  }
   const fx: Fx[] = [];
   const disp = new Map<string, { x: number; y: number; f: number; moving: number }>();
   const logLines: { text: string; cls: string }[] = [];
@@ -259,7 +265,7 @@ export function mountTactical(root: HTMLElement, battle: Battle, opts: TacticalO
 
   // ---------- rendering ----------
 
-  const terrain = renderTerrain(battle.grid, battle.evac, battle.core);
+  const terrain = renderTerrain(battle.grid, battle.evac, battle.core, opts.decor);
   const looks = new Map<string, PawnLook>();
   function lookOf(id: string, make: () => PawnLook) {
     let l = looks.get(id);
