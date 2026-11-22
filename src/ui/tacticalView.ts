@@ -1,22 +1,24 @@
 import { Battle, SHOOT_RANGE, ZOMBIE_STATS, type Unit, type Zombie, type BattleEvent } from '../tactical/battle';
-import { chebyshev, key, pathTo, type Pt, type Tile } from '../tactical/grid';
+import { chebyshev, key, pathTo, type Pt } from '../tactical/grid';
+import {
+  TS, drawBrackets, drawHpBar, drawLoot, drawPawn, label, lookFor, renderTerrain, roundRect, zombieLook, type PawnLook,
+} from './sprites';
+
+function facingOf(dx: number, dy: number): number {
+  if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 1 : 3;
+  return dy < 0 ? 2 : 0;
+}
+
+function walkBob(d: { moving: number }, now: number): number {
+  const t = now - d.moving;
+  return t < 350 ? -Math.abs(Math.sin(t / 45)) * 2 : 0;
+}
 import { carryCapacity, TRAITS } from '../game/crew';
 import { RESOURCE_KEYS } from '../game/types';
 import { h, clear } from './dom';
 
-const TS = 34;
 
-const TILE_COLOR: Record<Tile, string> = {
-  grass: '#2c3526',
-  road: '#2b2b2e',
-  floor: '#3a3430',
-  wall: '#6b625a',
-  car: '#5a3b33',
-  fence: '#5c5340',
-  crate: '#6a5536',
-};
 
-const UNIT_COLORS = ['#e0a458', '#7fb3d5', '#c39bd3', '#82c99a', '#e59866', '#f7dc6f', '#aab7b8'];
 
 interface Fx { kind: 'line' | 'text'; from?: Pt; to: Pt; text?: string; color: string; t0: number; dur: number }
 
@@ -34,8 +36,6 @@ export function mountTactical(root: HTMLElement, battle: Battle, opts: TacticalO
   root.append(wrap);
   const ctx = canvas.getContext('2d')!;
 
-  const colorOf = new Map<number, string>();
-  battle.units.forEach((u, i) => colorOf.set(u.id, UNIT_COLORS[i % UNIT_COLORS.length]));
 
   let selected: Unit | null = battle.activeUnits[0] ?? null;
   let hover: Pt | null = null;
@@ -45,7 +45,7 @@ export function mountTactical(root: HTMLElement, battle: Battle, opts: TacticalO
   let eventIdx = 0;
   const seen = new Set<number>();
   const fx: Fx[] = [];
-  const disp = new Map<string, { x: number; y: number }>();
+  const disp = new Map<string, { x: number; y: number; f: number; moving: number }>();
   const logLines: { text: string; cls: string }[] = [];
 
   function consumeEvents() {
@@ -53,6 +53,12 @@ export function mountTactical(root: HTMLElement, battle: Battle, opts: TacticalO
     for (; eventIdx < battle.events.length; eventIdx++) {
       const e: BattleEvent = battle.events[eventIdx];
       if (e.kind !== 'move') logLines.unshift({ text: e.text, cls: e.kind });
+      if (e.from && e.to && e.kind !== 'move') {
+        const u = battle.unitAt(e.from.x, e.from.y);
+        const z = battle.zombieAt(e.from.x, e.from.y);
+        if (u) faceToward(`u${u.id}`, e.to);
+        else if (z) faceToward(`z${z.id}`, e.to);
+      }
       if ((e.kind === 'shot' || e.kind === 'overwatch') && e.from && e.to) {
         fx.push({ kind: 'line', from: e.from, to: e.to, color: e.hit ? '#ffd27f' : '#888', t0: now, dur: 260 });
         fx.push({ kind: 'text', to: e.to, text: e.hit ? `-${e.dmg}` : 'miss', color: e.hit ? '#ff8a65' : '#bbb', t0: now, dur: 900 });
@@ -216,7 +222,7 @@ export function mountTactical(root: HTMLElement, battle: Battle, opts: TacticalO
         class: `card ${u === selected ? 'sel' : ''} ${!u.alive ? 'dead' : ''}`,
         onclick: () => { if (u.alive && !u.extracted) { selected = u; refresh(); } },
       },
-      h('div', { class: 'row' }, h('span', { class: 'dot', style: { background: colorOf.get(u.id) ?? '#5dade2' } }), h('b', {}, s.name), h('span', { class: 'pill' }, status)),
+      h('div', { class: 'row' }, h('span', { class: 'dot', style: { background: lookFor(u.survivor.name).body } }), h('b', {}, s.name), h('span', { class: 'pill' }, status)),
       h('div', { class: 'bar' }, h('div', { class: 'fill', style: { width: `${(100 * s.hp) / s.maxHp}%` } })),
       h('div', { class: 'small muted' }, `HP ${s.hp}/${s.maxHp} · Aim ${s.aim} · Ammo ${u.ammo} · Pack ${battle.carried(u)}/${carryCapacity(s)}${u.recruit ? ' · rescued' : ''}`),
       ));
@@ -253,14 +259,32 @@ export function mountTactical(root: HTMLElement, battle: Battle, opts: TacticalO
 
   // ---------- rendering ----------
 
+  const terrain = renderTerrain(battle.grid, battle.evac, battle.core);
+  const looks = new Map<string, PawnLook>();
+  function lookOf(id: string, make: () => PawnLook) {
+    let l = looks.get(id);
+    if (!l) { l = make(); looks.set(id, l); }
+    return l;
+  }
+
   function dpos(id: string, x: number, y: number) {
     let d = disp.get(id);
-    if (!d) { d = { x, y }; disp.set(id, d); }
-    d.x += (x - d.x) * 0.25;
-    d.y += (y - d.y) * 0.25;
+    if (!d) { d = { x, y, f: 0, moving: 0 }; disp.set(id, d); }
+    const dx = x - d.x, dy = y - d.y;
+    if (Math.abs(dx) > 0.05 || Math.abs(dy) > 0.05) {
+      d.f = facingOf(dx, dy);
+      d.moving = performance.now();
+    }
+    d.x += dx * 0.22;
+    d.y += dy * 0.22;
     if (Math.abs(d.x - x) < 0.01) d.x = x;
     if (Math.abs(d.y - y) < 0.01) d.y = y;
     return d;
+  }
+
+  function faceToward(id: string, to: Pt) {
+    const d = disp.get(id);
+    if (d) d.f = facingOf(to.x - d.x, to.y - d.y);
   }
 
   function draw() {
@@ -269,26 +293,9 @@ export function mountTactical(root: HTMLElement, battle: Battle, opts: TacticalO
     const vis = battle.visible();
     for (const k of vis) seen.add(k);
     const g = battle.grid;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    for (let y = 0; y < g.h; y++) {
-      for (let x = 0; x < g.w; x++) {
-        const k = key(x, y);
-        const t = g.get(x, y);
-        if (!seen.has(k)) { ctx.fillStyle = '#0b0c0e'; ctx.fillRect(x * TS, y * TS, TS, TS); continue; }
-        ctx.fillStyle = TILE_COLOR[t];
-        ctx.fillRect(x * TS, y * TS, TS, TS);
-        if (t === 'road' && y % 2 === 0 && x % 3 === 0) { ctx.fillStyle = '#4a4a3a'; ctx.fillRect(x * TS + 6, y * TS + TS - 2, TS - 12, 3); }
-        if (t === 'wall') { ctx.fillStyle = '#7d736a'; ctx.fillRect(x * TS, y * TS, TS, 5); }
-        if (t === 'car') { ctx.fillStyle = '#3d2722'; ctx.fillRect(x * TS + 3, y * TS + 6, TS - 6, TS - 12); }
-        if (t === 'crate') { ctx.strokeStyle = '#3e3020'; ctx.strokeRect(x * TS + 5, y * TS + 5, TS - 10, TS - 10); }
-        if (t === 'fence') { ctx.fillStyle = '#3c3626'; for (let i = 4; i < TS; i += 8) ctx.fillRect(x * TS + i, y * TS + 4, 3, TS - 8); }
-        if (battle.isEvac(x, y)) { ctx.fillStyle = 'rgba(80, 200, 120, 0.25)'; ctx.fillRect(x * TS, y * TS, TS, TS); }
-        if (battle.isCore(x, y)) { ctx.strokeStyle = 'rgba(230, 80, 60, 0.7)'; ctx.strokeRect(x * TS + 2, y * TS + 2, TS - 4, TS - 4); }
-        ctx.strokeStyle = 'rgba(0,0,0,0.18)';
-        ctx.strokeRect(x * TS + 0.5, y * TS + 0.5, TS - 1, TS - 1);
-      }
-    }
+    ctx.fillStyle = '#0d0c0a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(terrain, 0, 0);
 
     // Movement range.
     if (selected && !busy && selected.ap > 0 && battle.outcome === 'ongoing') {
@@ -296,58 +303,79 @@ export function mountTactical(root: HTMLElement, battle: Battle, opts: TacticalO
       for (const [k, n] of range) {
         if (n.d === 0) continue;
         const x = k % 1000, y = Math.floor(k / 1000);
-        ctx.fillStyle = n.d <= selected.survivor.mobility ? 'rgba(90,160,230,0.18)' : 'rgba(230,170,60,0.14)';
-        ctx.fillRect(x * TS, y * TS, TS, TS);
+        ctx.fillStyle = n.d <= selected.survivor.mobility ? 'rgba(120,190,250,0.13)' : 'rgba(240,180,70,0.1)';
+        ctx.fillRect(x * TS + 1, y * TS + 1, TS - 2, TS - 2);
       }
       if (hover && battle.moveCost(selected, hover.x, hover.y) !== null) {
         const path = pathTo(range, hover);
-        ctx.strokeStyle = '#9fd3ff';
+        ctx.strokeStyle = 'rgba(235, 245, 255, 0.85)';
+        ctx.setLineDash([5, 5]);
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(selected.x * TS + TS / 2, selected.y * TS + TS / 2);
         for (const p of path) ctx.lineTo(p.x * TS + TS / 2, p.y * TS + TS / 2);
         ctx.stroke();
+        ctx.setLineDash([]);
         ctx.lineWidth = 1;
+        drawBrackets(ctx, hover.x * TS + 3, hover.y * TS + 3, TS - 6, 'rgba(235,245,255,0.9)');
       }
     }
 
-    // Loot & strangers.
+    // Loot.
     for (const l of battle.loot) {
       if (!seen.has(key(l.x, l.y))) continue;
-      ctx.fillStyle = '#d4ac0d';
-      ctx.fillRect(l.x * TS + 10, l.y * TS + 11, TS - 20, TS - 20);
-      ctx.strokeStyle = '#7d6608';
-      ctx.strokeRect(l.x * TS + 10, l.y * TS + 11, TS - 20, TS - 20);
-    }
-    for (const s of battle.strangers) {
-      if (!vis.has(key(s.x, s.y))) continue;
-      circle(s.x, s.y, '#5dade2', '?');
+      const kinds = RESOURCE_KEYS.filter((k) => l.contents[k]);
+      const main = kinds.sort((a, b) => (l.contents[b] ?? 0) - (l.contents[a] ?? 0))[0] ?? 'scrap';
+      drawLoot(ctx, l.x, l.y, main);
     }
 
-    // Zombies.
+    // Characters, drawn top to bottom so lower ones overlap upper ones.
+    type Drawable = { y: number; fn: () => void };
+    const list: Drawable[] = [];
+    const labels: (() => void)[] = [];
+    for (const s of battle.strangers) {
+      if (!vis.has(key(s.x, s.y))) continue;
+      list.push({ y: s.y, fn: () => {
+        const cx = s.x * TS + TS / 2, cy = s.y * TS + TS / 2;
+        drawPawn(ctx, cx, cy, lookOf(`s${s.survivor.name}`, () => lookFor(s.survivor.name)), 0);
+        labels.push(() => label(ctx, 'Survivor', cx, cy + TS / 2 + 4, '#a9d6f5'));
+      } });
+    }
     for (const z of battle.zombies) {
       if (!vis.has(key(z.x, z.y))) continue;
       const d = dpos(`z${z.id}`, z.x, z.y);
-      const col = z.kind === 'brute' ? '#7d8a3a' : z.kind === 'runner' ? '#a3b85a' : '#6e8b4e';
-      circle(d.x, d.y, col, z.kind === 'brute' ? 'B' : z.kind === 'runner' ? 'S' : 'Z', z.kind === 'brute' ? 0.44 : 0.36, z.alerted ? '#c0392b' : '#1c2414');
-      hpBar(d.x, d.y, z.hp / z.maxHp, '#c0392b');
+      list.push({ y: d.y, fn: () => {
+        const cx = d.x * TS + TS / 2, cy = d.y * TS + TS / 2;
+        const sway = Math.sin(now / 300 + z.id) * 1.2;
+        drawPawn(ctx, cx + sway, cy, lookOf(`z${z.id}`, () => zombieLook(z.kind, z.id)), d.f, { bob: walkBob(d, now) });
+        if (z.hp < z.maxHp) drawHpBar(ctx, cx, cy - (z.kind === 'brute' ? 30 : 25), z.hp / z.maxHp, '#c0392b');
+        if (z.alerted) { ctx.fillStyle = '#e0533a'; ctx.font = 'bold 12px system-ui'; ctx.fillText('!', cx + 9, cy - 16); }
+      } });
     }
-
-    // Units.
     for (const u of battle.units) {
       if (!u.alive || u.extracted) continue;
       const d = dpos(`u${u.id}`, u.x, u.y);
-      if (u === selected) {
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(d.x * TS + TS / 2, d.y * TS + TS / 2, TS * 0.46, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.lineWidth = 1;
-      }
-      circle(d.x, d.y, colorOf.get(u.id) ?? '#5dade2', u.survivor.name[0], 0.36, '#111');
-      hpBar(d.x, d.y, u.survivor.hp / u.survivor.maxHp, '#2ecc71');
-      if (u.overwatch) { ctx.fillStyle = '#f5b041'; ctx.font = 'bold 10px sans-serif'; ctx.fillText('👁', d.x * TS + TS - 12, d.y * TS + 11); }
+      list.push({ y: d.y, fn: () => {
+        const cx = d.x * TS + TS / 2, cy = d.y * TS + TS / 2;
+        if (u.overwatch) {
+          const ang = [Math.PI / 2, Math.PI, -Math.PI / 2, 0][d.f];
+          ctx.fillStyle = 'rgba(245, 176, 65, 0.18)';
+          ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, TS * 2.2, ang - 0.6, ang + 0.6); ctx.closePath(); ctx.fill();
+        }
+        if (u === selected) drawBrackets(ctx, d.x * TS + 1, d.y * TS - 6, TS - 2, '#f6f1e4');
+        drawPawn(ctx, cx, cy, lookOf(`u${u.id}`, () => lookFor(u.survivor.name)), d.f, { armed: true, bob: walkBob(d, now) });
+        drawHpBar(ctx, cx, cy - 25, u.survivor.hp / u.survivor.maxHp, u.survivor.hp / u.survivor.maxHp > 0.4 ? '#6fcf6a' : '#e0a33a');
+        labels.push(() => label(ctx, u.survivor.name.split(' ')[0], cx, cy + TS / 2 + 4, u === selected ? '#ffe7a8' : '#f2efe6'));
+      } });
+    }
+    list.sort((a, b) => a.y - b.y).forEach((d) => d.fn());
+    labels.forEach((fn) => fn());
+
+    // Fog: unexplored is dark; explored but out of sight is dimmed.
+    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+      const k = key(x, y);
+      if (!seen.has(k)) { ctx.fillStyle = '#0d0c0a'; ctx.fillRect(x * TS, y * TS, TS, TS); }
+      else if (!vis.has(k)) { ctx.fillStyle = 'rgba(14, 16, 22, 0.55)'; ctx.fillRect(x * TS, y * TS, TS, TS); }
     }
 
     // Hover info on a zombie.
@@ -356,85 +384,83 @@ export function mountTactical(root: HTMLElement, battle: Battle, opts: TacticalO
       if (z && vis.has(key(z.x, z.y))) drawTargetInfo(selected, z);
     }
 
-    // Fog over seen-but-not-visible tiles.
-    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
-      const k = key(x, y);
-      if (seen.has(k) && !vis.has(k)) { ctx.fillStyle = 'rgba(8,10,14,0.55)'; ctx.fillRect(x * TS, y * TS, TS, TS); }
-    }
-
     // Effects.
     for (let i = fx.length - 1; i >= 0; i--) {
       const f = fx[i];
       const t = (now - f.t0) / f.dur;
       if (t >= 1) { fx.splice(i, 1); continue; }
       if (f.kind === 'line' && f.from) {
+        const x1 = f.from.x * TS + TS / 2, y1 = f.from.y * TS + TS / 2;
+        const x2 = f.to.x * TS + TS / 2, y2 = f.to.y * TS + TS / 2;
+        // A short bright tracer travelling along the line.
+        const p = Math.min(1, t * 2.5);
         ctx.strokeStyle = f.color;
         ctx.globalAlpha = 1 - t;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2.5;
         ctx.beginPath();
-        ctx.moveTo(f.from.x * TS + TS / 2, f.from.y * TS + TS / 2);
-        ctx.lineTo(f.to.x * TS + TS / 2, f.to.y * TS + TS / 2);
+        ctx.moveTo(x1 + (x2 - x1) * Math.max(0, p - 0.35), y1 + (y2 - y1) * Math.max(0, p - 0.35));
+        ctx.lineTo(x1 + (x2 - x1) * p, y1 + (y2 - y1) * p);
         ctx.stroke();
+        if (t < 0.15) { ctx.fillStyle = '#ffe9a8'; ctx.beginPath(); ctx.arc(x1, y1, 5, 0, Math.PI * 2); ctx.fill(); }
         ctx.lineWidth = 1;
         ctx.globalAlpha = 1;
       } else if (f.kind === 'text') {
         ctx.globalAlpha = 1 - t;
-        ctx.fillStyle = f.color;
-        ctx.font = 'bold 13px sans-serif';
+        ctx.font = 'bold 13px system-ui, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(f.text ?? '', f.to.x * TS + TS / 2, f.to.y * TS - t * 18 + 4);
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+        ctx.lineWidth = 3;
+        const tx = f.to.x * TS + TS / 2, ty = f.to.y * TS - t * 18 + 2;
+        ctx.strokeText(f.text ?? '', tx, ty);
+        ctx.fillStyle = f.color;
+        ctx.fillText(f.text ?? '', tx, ty);
         ctx.textAlign = 'left';
+        ctx.lineWidth = 1;
         ctx.globalAlpha = 1;
       }
     }
+
+    // Soft vignette.
+    ctx.drawImage(vignette, 0, 0);
     requestAnimationFrame(draw);
+  }
+
+  const vignette = document.createElement('canvas');
+  vignette.width = canvas.width;
+  vignette.height = canvas.height;
+  {
+    const vc = vignette.getContext('2d')!;
+    const gr = vc.createRadialGradient(canvas.width / 2, canvas.height / 2, canvas.height * 0.45, canvas.width / 2, canvas.height / 2, canvas.width * 0.7);
+    gr.addColorStop(0, 'rgba(0,0,0,0)');
+    gr.addColorStop(1, 'rgba(0,0,0,0.35)');
+    vc.fillStyle = gr;
+    vc.fillRect(0, 0, canvas.width, canvas.height);
   }
 
   function drawTargetInfo(u: Unit, z: Zombie) {
     const st = ZOMBIE_STATS[z.kind];
     const adj = chebyshev(u, z) === 1;
-    let label: string;
-    if (adj && !forceFire && battle.canMelee(u, z)) label = `Melee ${battle.meleeChance(u)}%`;
-    else if (battle.canShoot(u, z)) label = `Shoot ${battle.hitChance(u, z)}%${battle.coverBetween(u, z) ? ' (cover)' : ''}`;
-    else if (u.ammo <= 0) label = 'No ammo';
-    else if (chebyshev(u, z) > SHOOT_RANGE) label = 'Out of range';
-    else if (u.ap <= 0) label = 'No AP';
-    else label = 'No line of sight';
-    const text = `${st.name} ${z.hp}/${z.maxHp} · ${label}`;
-    ctx.font = '12px sans-serif';
-    const w = ctx.measureText(text).width + 12;
+    let what: string;
+    if (adj && !forceFire && battle.canMelee(u, z)) what = `Melee ${battle.meleeChance(u)}%`;
+    else if (battle.canShoot(u, z)) what = `Shoot ${battle.hitChance(u, z)}%${battle.coverBetween(u, z) ? ' (cover)' : ''}`;
+    else if (u.ammo <= 0) what = 'No ammo';
+    else if (chebyshev(u, z) > SHOOT_RANGE) what = 'Out of range';
+    else if (u.ap <= 0) what = 'No AP';
+    else what = 'No line of sight';
+    const text = `${st.name} ${z.hp}/${z.maxHp} · ${what}`;
+    ctx.font = '600 12px system-ui, sans-serif';
+    const w = ctx.measureText(text).width + 14;
     let x = z.x * TS + TS / 2 - w / 2;
     x = Math.max(2, Math.min(canvas.width - w - 2, x));
-    const y = Math.max(2, z.y * TS - 22);
-    ctx.fillStyle = 'rgba(0,0,0,0.85)';
-    ctx.fillRect(x, y, w, 18);
-    ctx.fillStyle = '#fff';
-    ctx.fillText(text, x + 6, y + 13);
-  }
-
-  function circle(x: number, y: number, color: string, letter: string, r = 0.36, ring = '#111') {
-    const cx = x * TS + TS / 2, cy = y * TS + TS / 2;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(cx, cy, TS * r, 0, Math.PI * 2);
+    const y = Math.max(2, z.y * TS - 34);
+    ctx.fillStyle = 'rgba(24, 22, 18, 0.92)';
+    roundRect(ctx, x, y, w, 20, 4);
     ctx.fill();
-    ctx.strokeStyle = ring;
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#6b5f4a';
     ctx.stroke();
-    ctx.lineWidth = 1;
-    ctx.fillStyle = '#111';
-    ctx.font = 'bold 13px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(letter, cx, cy + 5);
-    ctx.textAlign = 'left';
-  }
-
-  function hpBar(x: number, y: number, frac: number, color: string) {
-    const bx = x * TS + 5, by = y * TS + TS - 5;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(bx, by, TS - 10, 3);
-    ctx.fillStyle = color;
-    ctx.fillRect(bx, by, (TS - 10) * Math.max(0, frac), 3);
+    ctx.fillStyle = '#f2efe6';
+    ctx.fillText(text, x + 7, y + 14);
+    drawBrackets(ctx, z.x * TS + 1, z.y * TS - 4, TS - 2, '#e0533a');
   }
 
   refresh();
